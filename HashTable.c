@@ -13,6 +13,10 @@ struct bch_table *make_bch_table(
     size_t buckets, size_t bucket_slots,
     size_t table_count, ...)
 {
+    if (buckets < 1) exit(EXIT_FAILURE);
+    if (bucket_slots < 1) exit(EXIT_FAILURE);
+    if (table_count < 2) exit(EXIT_FAILURE);
+
     struct bch_table *table = malloc(sizeof(*table));
     if (!table) exit(EXIT_FAILURE);
 
@@ -46,13 +50,15 @@ static inline struct bch_llist_slot *_bch_find(
     struct bch_llist_bucket *buckets, size_t index, const char *key)
 {
     for (struct bch_llist_slot *p = buckets[index].slot; p; p = p->next)
-        if (strncmp(key, p->key, strlen(key)) == 0) return p;
+        if (strcmp(key, p->key) == 0) return p;
     return NULL;
 }
 
 struct bch_llist_slot *find_bch_table(
     struct bch_table *table, const char *key)
 {
+    if (!table || !key) exit(EXIT_FAILURE);
+    
     for (size_t i = 0; i < table->table_count; i++)
     {
         struct bch_buckets *current = table->tables + i;
@@ -84,6 +90,8 @@ static inline void _swap_slots(
 static inline struct bch_llist_slot *make_bch_slot(
     void *data, const char *key)
 {
+    if (!data || !key) exit(EXIT_FAILURE);
+
     struct bch_llist_slot *slot = malloc(sizeof(*slot));
     if (!slot) exit(EXIT_FAILURE);
 
@@ -130,6 +138,7 @@ static inline struct bch_llist_slot *_pop_last(
 struct bch_llist_slot *insert_bch_table(
     struct bch_table *table, const char *key, void* value)
 {
+    if (!table || !key || !value) exit(EXIT_FAILURE);
     struct bch_llist_slot *p;
     if ((p = find_bch_table(table, key))) return p;
 
@@ -137,27 +146,26 @@ struct bch_llist_slot *insert_bch_table(
     size_t t_index = 0;
     struct bch_llist_slot *result;
     p = make_bch_slot(value, key);
-    while (p)
+    for (;p;t_index = (t_index + 1) % table->info.buckets)
     {
         struct bch_buckets *current = table->tables + t_index;
         size_t index = (current->hash_f)(key) % table->info.buckets;
         struct bch_llist_bucket *b = current->bucket + index;
-        if (b->slots_used < 1)
+        if (b->slots_used >= 1 && cycles < table->info.buckets)
         {
-            result = _bch_insert(table, b, p);
-            break;
+            cycles++;
+            continue;
         }
-        if (cycles >= table->info.buckets)
+        if (b->slots_used >= table->info.bucket_slots)
         {
-            if (b->slots_used < table->info.bucket_slots) {
-                result = _bch_insert(table, b, p);
-                break;
-            }
             result = _bch_insert(table, b, p);
             p = _pop_last(b);
+
+            cycles = 0;
+            continue;
         }
-        t_index = (t_index + 1) % table->info.buckets;
-        cycles++;
+        result = _bch_insert(table, b, p);
+        break;
     }
     return result;
 }
@@ -165,6 +173,7 @@ struct bch_llist_slot *insert_bch_table(
 struct bch_llist_bucket *remove_bch_table(
     struct bch_table *table, const char *key)
 {
+    if (!table || !key) exit(EXIT_FAILURE);
     for (size_t i = 0; i < table->table_count; i++)
     {
         struct bch_buckets *current = table->tables + i;
@@ -174,19 +183,22 @@ struct bch_llist_bucket *remove_bch_table(
         struct bch_llist_slot *p = s;
         while (s)
         {
-            if (strncmp(key, s->key, strlen(key)) == 0)
+            if (strcmp(key, s->key) != 0)
             {
-                p->next = s->next;
-                free(s->data);
-                free(s->key);
-                free(s);
-                bucket->slots_used--;
-                table->info.used--;
-                if (!s->next) bucket->slot = NULL;
-                return bucket;
+                p = s;
+                s = s->next;
+                continue;
             }
-            p = s;
-            s = s->next;
+
+            if (!s->next) bucket->slot = NULL;
+            p->next = s->next;
+            free(s->data);
+            free(s->key);
+            free(s);
+
+            bucket->slots_used--;
+            table->info.used--;
+            return bucket;
         }
     }
     return NULL;
@@ -212,15 +224,15 @@ static inline void purge_table(
 )
 {
     for (size_t i = 0; i < table->info.buckets; i++)
-    {
         purge_bucket(bucket->bucket + i);
-    }
+    
     free(bucket->bucket);
 }
 
 bool destroy_bch_table(
     struct bch_table *table)
 {
+    if (!table) return false;
     for (size_t i = 0; i < table->table_count; i++)
     {
         struct bch_buckets *current = table->tables + i;

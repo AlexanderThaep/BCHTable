@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #if !defined(HASHTABLE)
@@ -45,6 +46,9 @@ struct bch_table
 struct bch_table *make_bch_table(
     size_t buckets, size_t bucket_slots,
     size_t table_count, ...);
+
+struct bch_llist_slot *insert_bch_table(
+    struct bch_table *table, const char *key, void* value);
 
 struct bch_llist_slot *find_bch_table(
     struct bch_table *table, const char *key);
