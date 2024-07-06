@@ -212,8 +212,8 @@ static inline void purge_bucket(
     while (slot)
     {
         struct bch_llist_slot *next = slot->next;
-        if (slot->data) free(slot->data);
-        if (slot->key) free(slot->key);
+        free(slot->data);
+        free(slot->key);
         free(slot);
         slot = next;
     }
