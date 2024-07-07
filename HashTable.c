@@ -166,6 +166,7 @@ struct bch_llist_slot *insert_bch_table(
         {
             result = _bch_insert(table, b, p);
             p = _pop_last(b);
+            table->info.used--;
 
             pops++;
             cycles = 0;
@@ -255,9 +256,25 @@ bool destroy_bch_table(
 struct stdh_table {
     size_t buckets;
     size_t bucket_slots;
+    size_t used;
+    uint8_t *bytes;
 };
 
 struct stdh_table *make_stdh_table(
-    size_t buckets, size_t bucket_slots)
+    size_t buckets, size_t bucket_slots, 
+    HASH_BITS (*hash_f)(const char *))
 {
+    struct stdh_table *table = malloc(sizeof(*table));
+    table->buckets = buckets;
+    table->bucket_slots = bucket_slots;
+    table->used = 0;
+    table->bytes = malloc(sizeof(*table->bytes) * buckets);
+    return table;
+}
+
+struct stdh_table *insert_stdh_table(
+    struct stdh_table *table, const char * key, 
+    uint8_t value)
+{
+    
 }
