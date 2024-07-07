@@ -14,8 +14,8 @@
 struct bch_llist_slot
 {
     void *data;
-    const char *key;
     struct bch_llist_slot *next;
+    HASH_BITS hash;
 };
 
 struct bch_llist_bucket
@@ -49,7 +49,8 @@ struct bch_table *make_bch_table(
     size_t table_count, ...);
 
 struct bch_llist_slot *insert_bch_table(
-    struct bch_table *table, const char *key, void* value);
+    struct bch_table *table, const char *key, 
+    void* value, bool force);
 
 struct bch_llist_slot *find_bch_table(
     struct bch_table *table, const char *key);

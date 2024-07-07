@@ -47,10 +47,10 @@ struct bch_table *make_bch_table(
 }
 
 static inline struct bch_llist_slot *_bch_find(
-    struct bch_llist_bucket *buckets, size_t index, const char *key)
+    struct bch_llist_bucket *buckets, size_t index, HASH_BITS hash)
 {
     for (struct bch_llist_slot *p = buckets[index].slot; p; p = p->next)
-        if (strcmp(key, p->key) == 0) return p;
+        if (hash == p->hash) return p;
     return NULL;
 }
 
@@ -62,8 +62,9 @@ struct bch_llist_slot *find_bch_table(
     for (size_t i = 0; i < table->table_count; i++)
     {
         struct bch_buckets *current = table->tables + i;
-        size_t index = (current->hash_f)(key) % table->info.buckets;
-        struct bch_llist_slot *s = _bch_find(current->bucket, index, key);
+        HASH_BITS hash = (current->hash_f)(key);
+        size_t index = hash % table->info.buckets;
+        struct bch_llist_slot *s = _bch_find(current->bucket, index, hash);
         if (s) return s;
     }
     return NULL;
@@ -84,20 +85,19 @@ static inline void _swap_slots(
     a->next = b;
 
     swap_ptr(&b->data, &a->data);
-    swap_ptr(&b->key, &a->key);
+    swap_ptr(&b->hash, &a->hash);
 }
 
 static inline struct bch_llist_slot *make_bch_slot(
-    void *data, const char *key)
+    void *data, HASH_BITS hash)
 {
-    if (!data || !key) exit(EXIT_FAILURE);
+    if (!data) exit(EXIT_FAILURE);
 
     struct bch_llist_slot *slot = malloc(sizeof(*slot));
     if (!slot) exit(EXIT_FAILURE);
 
     slot->data = data;
-    slot->key = strndup(key, strlen(key));
-    if (!slot->key) exit(EXIT_FAILURE);
+    slot->hash = hash;
 
     slot->next = NULL;
     return slot;
@@ -135,28 +135,39 @@ static inline struct bch_llist_slot *_pop_last(
 }
 
 struct bch_llist_slot *insert_bch_table(
-    struct bch_table *table, const char *key, void* value)
+    struct bch_table *table, const char *key, 
+    void* value, bool force)
 {
     if (!table || !key || !value) exit(EXIT_FAILURE);
+    float load_factor = table->info.used / table->info.buckets;
+    if (load_factor > 5.0f)
+    {
+        fprintf(stdout, 
+        "Table dangerously high load factor [%f]!\n", 
+        load_factor);
+    }
     struct bch_llist_slot *p;
-    if ((p = find_bch_table(table, key))) return p;
+    if (!force && (p = find_bch_table(table, key))) return p;
 
     size_t pops = 0;
     size_t cycles = 0;
     size_t t_index = 0;
     struct bch_llist_slot *result;
-    p = make_bch_slot(value, key);
+    p = make_bch_slot(value, 0);
     for (;p;t_index = (t_index + 1) % table->table_count)
     {
         if (pops > MAX_CUCKOOS)
         {
             fprintf(stdout, 
-            "Table is too full and exceeded cuckooing limit!\n");
+            "Table too full, exceeded cuckooing limit!\n");
             exit(EXIT_FAILURE);
         }
         struct bch_buckets *current = table->tables + t_index;
-        size_t index = (current->hash_f)(key) % table->info.buckets;
+        HASH_BITS hash = (current->hash_f)(key);
+        size_t index = hash % table->info.buckets;
         struct bch_llist_bucket *b = current->bucket + index;
+        p->hash = hash;
+
         if (b->slots_used >= 1 && cycles < table->info.buckets)
         {
             cycles++;
@@ -185,13 +196,14 @@ struct bch_llist_bucket *remove_bch_table(
     for (size_t i = 0; i < table->table_count; i++)
     {
         struct bch_buckets *current = table->tables + i;
-        size_t index = (current->hash_f)(key) % table->info.buckets;
+        HASH_BITS hash = (current->hash_f)(key);
+        size_t index = hash % table->info.buckets;
         struct bch_llist_bucket *bucket = current->bucket + index;
         struct bch_llist_slot *s = bucket->slot;
         struct bch_llist_slot *p = s;
         while (s)
         {
-            if (strcmp(key, s->key) != 0)
+            if (hash != s->hash)
             {
                 p = s;
                 s = s->next;
@@ -201,7 +213,6 @@ struct bch_llist_bucket *remove_bch_table(
             if (!s->next) bucket->slot = NULL;
             p->next = s->next;
             free(s->data);
-            free(s->key);
             free(s);
 
             bucket->slots_used--;
@@ -221,7 +232,6 @@ static inline void purge_bucket(
     {
         struct bch_llist_slot *next = slot->next;
         free(slot->data);
-        free(slot->key);
         free(slot);
         slot = next;
     }
