@@ -109,8 +109,7 @@ static inline struct bch_llist_slot *_bch_insert(
 {
     table->info.used++;
     buckets->slots_used++;
-    struct bch_llist_bucket *b = buckets;
-    struct bch_llist_slot *p = b->slot;
+    struct bch_llist_slot *p = buckets->slot;
     struct bch_llist_slot *d = slot;
     if (p)
     {
@@ -118,7 +117,7 @@ static inline struct bch_llist_slot *_bch_insert(
     }
     else
     {
-        b->slot = d;
+        buckets->slot = d;
         p = d;
     }
     return p;
@@ -142,12 +141,19 @@ struct bch_llist_slot *insert_bch_table(
     struct bch_llist_slot *p;
     if ((p = find_bch_table(table, key))) return p;
 
+    size_t pops = 0;
     size_t cycles = 0;
     size_t t_index = 0;
     struct bch_llist_slot *result;
     p = make_bch_slot(value, key);
-    for (;p;t_index = (t_index + 1) % table->info.buckets)
+    for (;p;t_index = (t_index + 1) % table->table_count)
     {
+        if (pops > MAX_CUCKOOS)
+        {
+            fprintf(stdout, 
+            "Table is too full and exceeded cuckooing limit!\n");
+            exit(EXIT_FAILURE);
+        }
         struct bch_buckets *current = table->tables + t_index;
         size_t index = (current->hash_f)(key) % table->info.buckets;
         struct bch_llist_bucket *b = current->bucket + index;
@@ -161,6 +167,7 @@ struct bch_llist_slot *insert_bch_table(
             result = _bch_insert(table, b, p);
             p = _pop_last(b);
 
+            pops++;
             cycles = 0;
             continue;
         }
@@ -241,4 +248,16 @@ bool destroy_bch_table(
     free(table->tables);
     free(table);
     return true;
+}
+
+// STANDARD HASH TABLE (for normal, human purposes)
+
+struct stdh_table {
+    size_t buckets;
+    size_t bucket_slots;
+};
+
+struct stdh_table *make_stdh_table(
+    size_t buckets, size_t bucket_slots)
+{
 }

@@ -7,6 +7,7 @@
 
 #define DEFAULT_HTABLE_BUCKETS 64
 #define DEFAULT_BUCKET_SLOTS 4
+#define MAX_CUCKOOS 200
 
 #define HASH_BITS uint32_t
 
