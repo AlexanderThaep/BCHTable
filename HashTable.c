@@ -126,10 +126,10 @@ static inline struct bch_llist_slot *_bch_insert(
 static inline struct bch_llist_slot *_pop_last(
     struct bch_llist_bucket *bucket)
 {
-    bucket->slots_used--;
     struct bch_llist_slot *prev = bucket->slot;
-    struct bch_llist_slot *h = prev;
-    for (; h->next; h = h->next) prev = h;
+    struct bch_llist_slot *h;
+    for (h = prev; h->next; h = h->next) 
+        prev = h;
     prev->next = NULL;
     return h;
 }
@@ -148,14 +148,15 @@ struct bch_llist_slot *insert_bch_table(
     }
     struct bch_llist_slot *p;
     if (!force && (p = find_bch_table(table, key))) return p;
+    p = make_bch_slot(value, 0);
 
     size_t pops = 0;
     size_t cycles = 0;
     size_t t_index = 0;
     struct bch_llist_slot *result;
-    p = make_bch_slot(value, 0);
-    for (;p;t_index = (t_index + 1) % table->table_count)
+    for (; p; t_index++)
     {
+        t_index %= table->table_count;
         if (pops > MAX_CUCKOOS)
         {
             fprintf(stdout, 
@@ -167,23 +168,25 @@ struct bch_llist_slot *insert_bch_table(
         size_t index = hash % table->info.buckets;
         struct bch_llist_bucket *b = current->bucket + index;
         p->hash = hash;
-
-        if (b->slots_used >= 1 && cycles < table->info.buckets)
-        {
-            cycles++;
-            continue;
-        }
+        // Slows to a crawl
+        // if (b->slots_used >= 1 && cycles < table->info.buckets)
+        // {
+        //     cycles++;
+        //     continue;
+        // }
         if (b->slots_used >= table->info.bucket_slots)
         {
             result = _bch_insert(table, b, p);
             p = _pop_last(b);
             table->info.used--;
+            b->slots_used--;
 
             pops++;
             cycles = 0;
             continue;
         }
         result = _bch_insert(table, b, p);
+        pops = 0;
         break;
     }
     return result;
