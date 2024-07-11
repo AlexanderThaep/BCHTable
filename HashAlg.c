@@ -135,3 +135,18 @@ uint32_t fnv_1a_hash(const char *str)
     }
     return hash;
 }
+
+uint32_t crc32(const char *str)
+{
+    uint32_t crc = ~0U;
+    uint8_t c;
+    while ((c = *str++))
+    {
+        crc ^= c;
+        for (int i = 0; i < 8; i++)
+        {
+            crc = (crc & 1) ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        }
+    }
+    return (~crc);
+}

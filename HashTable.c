@@ -9,14 +9,10 @@
 // TODO: implement this paper https://cseweb.ucsd.edu//~tullsen/horton.pdf
 // HASHTABLE STUFF BELOW
 
-struct bch_table *make_bch_table(
+static struct bch_table *_spawn_bch_table(
     size_t buckets, size_t bucket_slots,
-    size_t table_count, ...)
+    size_t table_count)
 {
-    if (buckets < 1) exit(EXIT_FAILURE);
-    if (bucket_slots < 1) exit(EXIT_FAILURE);
-    if (table_count < 2) exit(EXIT_FAILURE);
-
     struct bch_table *table = malloc(sizeof(*table));
     if (!table) exit(EXIT_FAILURE);
 
@@ -27,12 +23,8 @@ struct bch_table *make_bch_table(
     table->tables = malloc(sizeof(struct bch_buckets) * table_count);
     if (!table->tables) exit(EXIT_FAILURE);
 
-    va_list ptr;
-    va_start(ptr, table_count);
     for (size_t i = 0; i < table_count; i++)
     {
-        HASH_BITS (*hash_f)(const char *) = va_arg(ptr, HASH_BITS (*)(const char *));
-        table->tables[i].hash_f = hash_f;
         table->tables[i].bucket = malloc(sizeof(struct bch_llist_bucket) * buckets);
         if (!table->tables[i].bucket) exit(EXIT_FAILURE);
 
@@ -41,6 +33,30 @@ struct bch_table *make_bch_table(
             table->tables[i].bucket[j].slot = NULL;
             table->tables[i].bucket[j].slots_used = 0;
         }
+    }
+    return table;
+}
+
+struct bch_table *make_bch_table(
+    size_t buckets, size_t bucket_slots,
+    size_t table_count, ...)
+{
+    if (buckets < 1) exit(EXIT_FAILURE);
+    if (bucket_slots < 1) exit(EXIT_FAILURE);
+    if (table_count < 2) exit(EXIT_FAILURE);
+
+    struct bch_table *table = _spawn_bch_table(
+        buckets, 
+        bucket_slots, 
+        table_count);
+    if (!table) exit(EXIT_FAILURE);
+
+    va_list ptr;
+    va_start(ptr, table_count);
+    for (size_t i = 0; i < table_count; i++)
+    {
+        HASH_BITS (*hash_f)(const char *) = va_arg(ptr, HASH_BITS (*)(const char *));
+        table->tables[i].hash_f = hash_f;
     }
     va_end(ptr);
     return table;
@@ -134,21 +150,11 @@ static inline struct bch_llist_slot *_pop_last(
     return h;
 }
 
-struct bch_llist_slot *insert_bch_table(
-    struct bch_table *table, const char *key, 
-    void* value, bool force)
+static struct bch_llist_slot *_nohash_bch_insert(
+    struct bch_table *table, HASH_BITS hash,
+    void *value, bool force)
 {
-    if (!table || !key || !value) exit(EXIT_FAILURE);
-    float load_factor = table->info.used / table->info.buckets;
-    if (load_factor > 5.0f)
-    {
-        fprintf(stdout, 
-        "Table dangerously high load factor [%f]!\n", 
-        load_factor);
-    }
-    struct bch_llist_slot *p;
-    if (!force && (p = find_bch_table(table, key))) return p;
-    p = make_bch_slot(value, 0);
+    struct bch_llist_slot *p = make_bch_slot(value, 0);
 
     size_t pops = 0;
     size_t cycles = 0;
@@ -157,23 +163,10 @@ struct bch_llist_slot *insert_bch_table(
     for (; p; t_index++)
     {
         t_index %= table->table_count;
-        if (pops > MAX_CUCKOOS)
-        {
-            fprintf(stdout, 
-            "Table too full, exceeded cuckooing limit!\n");
-            exit(EXIT_FAILURE);
-        }
         struct bch_buckets *current = table->tables + t_index;
-        HASH_BITS hash = (current->hash_f)(key);
         size_t index = hash % table->info.buckets;
         struct bch_llist_bucket *b = current->bucket + index;
         p->hash = hash;
-        // Slows to a crawl
-        // if (b->slots_used >= 1 && cycles < table->info.buckets)
-        // {
-        //     cycles++;
-        //     continue;
-        // }
         if (b->slots_used >= table->info.bucket_slots)
         {
             result = _bch_insert(table, b, p);
@@ -187,6 +180,94 @@ struct bch_llist_slot *insert_bch_table(
         }
         result = _bch_insert(table, b, p);
         pops = 0;
+        break;
+    }
+    return result;
+}
+
+struct bch_table *rehash_bch_table(
+    struct bch_table *table,
+    size_t buckets, size_t bucket_slots)
+{
+    struct bch_table *new_table = _spawn_bch_table(
+        buckets, 
+        bucket_slots, 
+        table->table_count);
+
+    for (size_t k = 0; k < table->table_count; k++)
+    {
+        struct bch_buckets *t = table->tables + k;
+        new_table->tables[k].hash_f = t->hash_f;
+    }
+    
+    for (size_t i = 0; i < table->table_count; i++)
+    {
+        struct bch_buckets *t = table->tables + i;
+        for (size_t j = 0; j < table->info.buckets; j++)
+        {
+            struct bch_llist_slot *s = t->bucket[j].slot;
+            if (!s) continue;
+            while (s)
+            {
+                struct bch_llist_slot *next = s->next;
+                _nohash_bch_insert(
+                    new_table, s->hash, 
+                    s->data, false);
+                s = next;
+            }
+        }
+    }
+
+    return new_table;
+}
+
+struct bch_llist_slot *insert_bch_table(
+    struct bch_table *table, const char *key, 
+    void* value, bool force)
+{
+    if (!table || !key || !value) exit(EXIT_FAILURE);
+    float load_factor = 
+        (float) table->info.used / 
+        (float) table->info.buckets;
+    if (load_factor > 5.0f)
+    {
+        fprintf(stdout, 
+        "Table dangerously high load factor [%f]!\n", 
+        load_factor);
+    }
+    struct bch_llist_slot *p;
+    if (!force && (p = find_bch_table(table, key))) return p;
+    p = make_bch_slot(value, 0);
+
+    size_t cuckoos = 0;
+    size_t t_index = 0;
+    struct bch_llist_slot *result;
+    for (; p; t_index++)
+    {
+        t_index %= table->table_count;
+        if (cuckoos > MAX_CUCKOOS)
+        {
+            fprintf(stdout, 
+            "Table too full, exceeded cuckooing limit!\n");
+            exit(EXIT_FAILURE);
+        }
+        struct bch_buckets *current = table->tables + t_index;
+        HASH_BITS hash = (current->hash_f)(key);
+        size_t index = hash % table->info.buckets;
+        struct bch_llist_bucket *b = current->bucket + index;
+        p->hash = hash;
+        if (b->slots_used >= table->info.bucket_slots)
+        {
+            result = _bch_insert(table, b, p);
+            p = _pop_last(b);
+            table->info.used--;
+            b->slots_used--;
+
+            cuckoos++;
+            continue;
+        }
+        result = _bch_insert(table, b, p);
+        cuckoos = 0;
         break;
     }
     return result;
@@ -266,28 +347,57 @@ bool destroy_bch_table(
 
 // STANDARD HASH TABLE (for normal, human purposes)
 
-struct stdh_table {
+struct stdh_bucket
+{
+    HASH_BITS hash;
+    uint8_t riches;
+    uint8_t bytes;
+};
+
+struct stdh_table
+{
     size_t buckets;
-    size_t bucket_slots;
     size_t used;
-    uint8_t *bytes;
+    struct stdh_bucket* bucket;
+    HASH_BITS (*hash_f)(const char *);
 };
 
 struct stdh_table *make_stdh_table(
-    size_t buckets, size_t bucket_slots, 
-    HASH_BITS (*hash_f)(const char *))
+    size_t buckets, HASH_BITS (*hash_f)(const char *))
 {
     struct stdh_table *table = malloc(sizeof(*table));
+    table->hash_f = hash_f;
     table->buckets = buckets;
-    table->bucket_slots = bucket_slots;
     table->used = 0;
-    table->bytes = malloc(sizeof(*table->bytes) * buckets);
+    table->bucket = calloc(sizeof(*table->bucket) * buckets, 1);
     return table;
 }
 
-struct stdh_table *insert_stdh_table(
-    struct stdh_table *table, const char * key, 
+struct stdh_bucket insert_stdh_table(
+    struct stdh_table *table, const char *key, 
     uint8_t value)
 {
-    
+    if (!table || !key || !value) exit(EXIT_FAILURE);
+    float load_factor = 
+        (float) table->used / 
+        (float) table->buckets;
+    if (load_factor > 0.8f)
+    {
+        fprintf(stdout, 
+        "Table dangerously high load factor [%f]!\n", 
+        load_factor);
+    }
+    HASH_BITS hash = table->hash_f(key);
+    size_t index = hash % table->buckets;
+    struct stdh_bucket b = { .bytes = value, .hash = hash, .riches = 0 };
+
+    if (table->bucket[index].hash != 0)
+    {
+        printf("Collision!\n");
+        struct stdh_bucket g = {};
+        return g;
+    }
+
+    table->bucket[index] = b;
+    return table->bucket[index];
 }
