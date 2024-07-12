@@ -66,4 +66,37 @@ struct bch_llist_bucket *remove_bch_table(
 bool destroy_bch_table(
     struct bch_table *table);
 
+struct stdh_bucket
+{
+    HASH_BITS hash;
+    uint8_t riches;
+    uint8_t bytes;
+};
+
+struct stdh_table
+{
+    size_t buckets;
+    size_t used;
+    struct stdh_bucket* bucket;
+    HASH_BITS (*hash_f)(const char *);
+};
+
+struct stdh_table *make_stdh_table(
+    size_t buckets, HASH_BITS (*hash_f)(const char *));
+
+struct stdh_bucket insert_stdh_table(
+    struct stdh_table *table, const char *key, 
+    uint8_t value);
+
+struct stdh_bucket find_stdh_table(
+    struct stdh_table *table, const char *key);
+
+void print_stdh_table(
+    struct stdh_table *table
+);
+
+bool destroy_stdh_table(
+    struct stdh_table *table
+);
+
 #endif

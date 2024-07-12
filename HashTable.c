@@ -25,7 +25,8 @@ static struct bch_table *_spawn_bch_table(
 
     for (size_t i = 0; i < table_count; i++)
     {
-        table->tables[i].bucket = malloc(sizeof(struct bch_llist_bucket) * buckets);
+        table->tables[i].bucket = malloc(sizeof
+            (struct bch_llist_bucket) * buckets);
         if (!table->tables[i].bucket) exit(EXIT_FAILURE);
 
         for (size_t j = 0; j < buckets; j++)
@@ -55,7 +56,8 @@ struct bch_table *make_bch_table(
     va_start(ptr, table_count);
     for (size_t i = 0; i < table_count; i++)
     {
-        HASH_BITS (*hash_f)(const char *) = va_arg(ptr, HASH_BITS (*)(const char *));
+        HASH_BITS (*hash_f)(const char *) = 
+            va_arg(ptr, HASH_BITS (*)(const char *));
         table->tables[i].hash_f = hash_f;
     }
     va_end(ptr);
@@ -63,9 +65,14 @@ struct bch_table *make_bch_table(
 }
 
 static inline struct bch_llist_slot *_bch_find(
-    struct bch_llist_bucket *buckets, size_t index, HASH_BITS hash)
+    struct bch_llist_bucket *buckets, size_t index, 
+    HASH_BITS hash)
 {
-    for (struct bch_llist_slot *p = buckets[index].slot; p; p = p->next)
+    for (
+        struct bch_llist_slot *p = buckets[index].slot; 
+        p; 
+        p = p->next)
+
         if (hash == p->hash) return p;
     return NULL;
 }
@@ -80,7 +87,10 @@ struct bch_llist_slot *find_bch_table(
         struct bch_buckets *current = table->tables + i;
         HASH_BITS hash = (current->hash_f)(key);
         size_t index = hash % table->info.buckets;
-        struct bch_llist_slot *s = _bch_find(current->bucket, index, hash);
+        struct bch_llist_slot *s = _bch_find(
+            current->bucket, 
+            index, 
+            hash);
         if (s) return s;
     }
     return NULL;
@@ -347,21 +357,6 @@ bool destroy_bch_table(
 
 // STANDARD HASH TABLE (for normal, human purposes)
 
-struct stdh_bucket
-{
-    HASH_BITS hash;
-    uint8_t riches;
-    uint8_t bytes;
-};
-
-struct stdh_table
-{
-    size_t buckets;
-    size_t used;
-    struct stdh_bucket* bucket;
-    HASH_BITS (*hash_f)(const char *);
-};
-
 struct stdh_table *make_stdh_table(
     size_t buckets, HASH_BITS (*hash_f)(const char *))
 {
@@ -373,11 +368,27 @@ struct stdh_table *make_stdh_table(
     return table;
 }
 
+struct stdh_bucket find_stdh_table(
+    struct stdh_table *table, const char *key)
+{
+    if (!table || !key) exit(EXIT_FAILURE);
+    HASH_BITS hash = table->hash_f(key);
+    size_t index = hash % table->buckets;
+
+    struct stdh_bucket b = {};
+    if (table->bucket[index].hash == 0) return b;
+
+    for (; table->bucket[index].hash != hash; index++)
+        if (index >= table->buckets) return b;
+
+    return table->bucket[index];
+}
+
 struct stdh_bucket insert_stdh_table(
     struct stdh_table *table, const char *key, 
     uint8_t value)
 {
-    if (!table || !key || !value) exit(EXIT_FAILURE);
+    if (!table || !key) exit(EXIT_FAILURE);
     float load_factor = 
         (float) table->used / 
         (float) table->buckets;
@@ -387,17 +398,65 @@ struct stdh_bucket insert_stdh_table(
         "Table dangerously high load factor [%f]!\n", 
         load_factor);
     }
+    struct stdh_bucket c = {};
+    if ((c = find_stdh_table(table, key)).hash != 0) return c;
+
     HASH_BITS hash = table->hash_f(key);
     size_t index = hash % table->buckets;
-    struct stdh_bucket b = { .bytes = value, .hash = hash, .riches = 0 };
+    struct stdh_bucket b = { .bytes = value, .hash = hash};
 
-    if (table->bucket[index].hash != 0)
+    while (b.hash != 0)
     {
-        printf("Collision!\n");
-        struct stdh_bucket g = {};
-        return g;
+        if (index >= table->buckets) return (struct stdh_bucket) {};
+        if (
+            table->bucket[index].riches < b.riches ||
+            table->bucket[index].hash == 0)
+        {
+            c = b;
+            b = table->bucket[index];
+            table->bucket[index] = c;
+        }
+        b.riches++;
+        index = (index + 1) % table->buckets;
     }
 
-    table->bucket[index] = b;
-    return table->bucket[index];
+    return c;
+}
+
+//TODO remove_stdh_table
+struct stdh_bucket remove_stdh_table(
+    struct stdh_table *table,
+    const char *key)
+{
+    HASH_BITS hash = table->hash_f(key);
+    size_t index = hash % table->buckets;
+
+    struct stdh_bucket b = {};
+    if (table->bucket[index].hash == 0) return b;
+
+    for (; table->bucket[index].hash != hash; index++)
+        if (index >= table->buckets) return b;
+
+    b = table->bucket[index];
+
+    // cascade up
+
+    return b;
+}
+
+void print_stdh_table(struct stdh_table *table)
+{
+    for (size_t index = 0; index < table->buckets; index++)
+    {
+        struct stdh_bucket c = table->bucket[index];
+        printf("[HASH] %u, [DATA] %u, [RICHES] %u\n", c.hash, c.bytes, c.riches);
+    }
+}
+
+bool destroy_stdh_table(struct stdh_table *table)
+{
+    if (!table) return false;
+    free(table->bucket);
+    free(table);
+    return true;
 }
