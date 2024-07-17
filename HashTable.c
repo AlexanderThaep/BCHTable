@@ -368,13 +368,11 @@ struct stdh_table *make_stdh_table(
     return table;
 }
 
-struct stdh_bucket find_stdh_table(
-    struct stdh_table *table, const char *key)
+static inline struct stdh_bucket _find_hash(
+    struct stdh_table *table, HASH_BITS hash
+)
 {
-    if (!table || !key) exit(EXIT_FAILURE);
-    HASH_BITS hash = table->hash_f(key);
     size_t index = hash % table->buckets;
-
     struct stdh_bucket b = {};
     if (table->bucket[index].hash == 0) return b;
 
@@ -382,6 +380,66 @@ struct stdh_bucket find_stdh_table(
         if (index >= table->buckets) return b;
 
     return table->bucket[index];
+}
+
+struct stdh_bucket find_stdh_table(
+    struct stdh_table *table, const char *key)
+{
+    if (!table || !key) exit(EXIT_FAILURE);
+    HASH_BITS hash = table->hash_f(key);
+    return _find_hash(table, hash);
+}
+
+struct stdh_bucket _insert_index(
+    struct stdh_table *table, size_t index,
+    HASH_BITS hash, uint8_t value
+)
+{
+    struct stdh_bucket c = {};
+    struct stdh_bucket b = { .bytes = value, .hash = hash};
+
+    while (b.hash != 0)
+    {
+        if (index >= table->buckets) return (struct stdh_bucket) {};
+        if (
+            table->bucket[index].riches < b.riches ||
+            table->bucket[index].hash == 0)
+        {
+            c = b;
+            b = table->bucket[index];
+            table->bucket[index] = c;
+        }
+        b.riches++;
+        index++;
+    }
+    table->used++;
+    return c;
+}
+
+static inline struct stdh_bucket _insert_hash(
+    struct stdh_table *table, HASH_BITS hash,
+    uint8_t value)
+{
+    struct stdh_bucket c = {};
+    size_t index = hash % table->buckets;
+    struct stdh_bucket b = { .bytes = value, .hash = hash};
+
+    while (b.hash != 0)
+    {
+        if (index >= table->buckets) table = rehash_stdh_table(table);
+        if (
+            table->bucket[index].riches < b.riches ||
+            table->bucket[index].hash == 0)
+        {
+            c = b;
+            b = table->bucket[index];
+            table->bucket[index] = c;
+        }
+        b.riches++;
+        index++;
+    }
+    table->used++;
+    return c;
 }
 
 struct stdh_bucket insert_stdh_table(
@@ -398,59 +456,88 @@ struct stdh_bucket insert_stdh_table(
         "Table dangerously high load factor [%f]!\n", 
         load_factor);
     }
-    struct stdh_bucket c = {};
-    if ((c = find_stdh_table(table, key)).hash != 0) return c;
-
     HASH_BITS hash = table->hash_f(key);
-    size_t index = hash % table->buckets;
-    struct stdh_bucket b = { .bytes = value, .hash = hash};
+    struct stdh_bucket c = {};
+    if ((c = _find_hash(table, hash)).hash != 0) return c;
+    c = _insert_hash(table, hash, value);
+    return c;
+}
 
-    while (b.hash != 0)
+static inline struct stdh_bucket _remove_hash(
+    struct stdh_table *table,
+    HASH_BITS hash
+)
+{
+    size_t index = hash % table->buckets;
+    struct stdh_bucket b = table->bucket[index];
+    if (b.hash == 0) return b;
+
+    while (index < table->buckets && b.hash != hash) 
+        b = table->bucket[index++];
+    
+    struct stdh_bucket c = b;
+    table->bucket[--index] = (struct stdh_bucket) {};
+    table->used--;
+    
+    b = table->bucket[++index];
+    while (b.riches > 0)
     {
-        if (index >= table->buckets) return (struct stdh_bucket) {};
-        if (
-            table->bucket[index].riches < b.riches ||
-            table->bucket[index].hash == 0)
-        {
-            c = b;
-            b = table->bucket[index];
-            table->bucket[index] = c;
-        }
-        b.riches++;
-        index = (index + 1) % table->buckets;
+        if (index >= table->buckets) break;
+        table->bucket[index] = (struct stdh_bucket) {};
+        b.riches--;
+        table->bucket[index - 1] = b;
+        b = table->bucket[++index];
     }
 
     return c;
 }
 
-//TODO remove_stdh_table
+struct stdh_bucket _remove_index(
+    struct stdh_table *table,
+    HASH_BITS hash,
+    size_t index
+)
+{
+    struct stdh_bucket b = table->bucket[index];
+    if (b.hash == 0) return b;
+
+    while (index < table->buckets && b.hash != hash) 
+        b = table->bucket[index++];
+    
+    struct stdh_bucket c = b;
+    table->bucket[--index] = (struct stdh_bucket) {};
+    table->used--;
+    
+    b = table->bucket[++index];
+    while (b.riches > 0)
+    {
+        if (index >= table->buckets) break;
+        table->bucket[index] = (struct stdh_bucket) {};
+        b.riches--;
+        table->bucket[index - 1] = b;
+        b = table->bucket[++index];
+    }
+
+    return c;
+}
+
 struct stdh_bucket remove_stdh_table(
     struct stdh_table *table,
     const char *key)
 {
     HASH_BITS hash = table->hash_f(key);
-    size_t index = hash % table->buckets;
-
-    struct stdh_bucket b = {};
-    if (table->bucket[index].hash == 0) return b;
-
-    for (; table->bucket[index].hash != hash; index++)
-        if (index >= table->buckets) return b;
-
-    b = table->bucket[index];
-
-    // cascade up
-
-    return b;
+    return _remove_hash(table, hash);
 }
 
 void print_stdh_table(struct stdh_table *table)
 {
+    printf("\n%*s %*s %*s\n", 10, "[HASH]", 10, "[DATA]", 10, "[BROKE]");
     for (size_t index = 0; index < table->buckets; index++)
     {
         struct stdh_bucket c = table->bucket[index];
-        printf("[HASH] %u, [DATA] %u, [RICHES] %u\n", c.hash, c.bytes, c.riches);
+        printf("%*x %*u %*u\n", 10, c.hash, 10, c.bytes, 10, c.riches);
     }
+    printf("This table has [%u] items!\n", table->used);
 }
 
 bool destroy_stdh_table(struct stdh_table *table)
@@ -459,4 +546,22 @@ bool destroy_stdh_table(struct stdh_table *table)
     free(table->bucket);
     free(table);
     return true;
+}
+
+struct stdh_table *rehash_stdh_table(struct stdh_table *table)
+{
+    struct stdh_table *new_table = make_stdh_table(
+        table->buckets * 2, 
+        table->hash_f);
+
+    for (size_t i = 0; i < table->buckets; i++)
+    {
+        struct stdh_bucket b = table->bucket[i];
+        if (b.hash == 0) continue;
+
+        _insert_hash(new_table, b.hash, b.bytes);
+    }
+
+    destroy_stdh_table(table);
+    return new_table;
 }
