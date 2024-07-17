@@ -55,16 +55,22 @@ struct bch_table *rehash_bch_table(
 
 struct bch_llist_slot *insert_bch_table(
     struct bch_table *table, const char *key, 
-    void* value, bool force);
+    void* value, bool force
+);
 
 struct bch_llist_slot *find_bch_table(
-    struct bch_table *table, const char *key);
+    struct bch_table *table, const char *key
+);
 
 struct bch_llist_bucket *remove_bch_table(
-    struct bch_table *table, const char *key);
+    struct bch_table *table, const char *key
+);
 
 bool destroy_bch_table(
-    struct bch_table *table);
+    struct bch_table *table
+);
+
+// STDH TABLE
 
 struct stdh_bucket
 {
@@ -82,21 +88,48 @@ struct stdh_table
 };
 
 struct stdh_table *make_stdh_table(
-    size_t buckets, HASH_BITS (*hash_f)(const char *));
+    size_t buckets, HASH_BITS (*hash_f)(const char *)
+);
 
 struct stdh_bucket insert_stdh_table(
     struct stdh_table *table, const char *key, 
-    uint8_t value);
+    uint8_t value
+);
 
 struct stdh_bucket find_stdh_table(
-    struct stdh_table *table, const char *key);
+    struct stdh_table *table, const char *key
+);
 
-void print_stdh_table(
-    struct stdh_table *table
+struct stdh_bucket remove_stdh_table(
+    struct stdh_table *table,
+    const char *key
 );
 
 bool destroy_stdh_table(
     struct stdh_table *table
 );
+
+struct stdh_table *rehash_stdh_table(
+    struct stdh_table *table
+);
+
+#ifdef SPECIAL_HASH_UTILS
+
+struct stdh_bucket _insert_index(
+    struct stdh_table *table, size_t index, 
+    HASH_BITS hash, uint8_t value
+);
+
+struct stdh_bucket _remove_index(
+    struct stdh_table *table,
+    HASH_BITS hash,
+    size_t index
+);
+
+void print_stdh_table(
+    struct stdh_table *table
+);
+
+#endif
 
 #endif
