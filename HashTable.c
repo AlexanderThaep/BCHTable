@@ -412,11 +412,7 @@ static inline struct stdh_bucket _insert_hash(
     while (b.hash != 0)
     {
         if (table->bucket[index].hash == b.hash) 
-        {
-            uint32_t hashish = table->bucket[index].hash;
-            uint8_t valueh = table->bucket[index].bytes;
             return table->bucket[index];
-        }
         if (index >= table->buckets || b.riches > table->probe_limit) 
         {
             table = rehash_stdh_table(table, DEFAULT_RESIZE);
