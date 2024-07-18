@@ -112,6 +112,11 @@ int rem;
 
 /*SACRED CODE*/
 
+uint32_t super_fast_hash(const char *str)
+{
+    return SuperFastHash(str, strlen(str));
+}
+
 uint32_t fnv_1_hash(const char *str)
 {
     uint32_t hash = 0x811c9dc5;

@@ -10,6 +10,7 @@
 #define MAX_CUCKOOS 200
 
 #define HASH_BITS uint32_t
+#define DEFAULT_RESIZE 2
 
 struct bch_llist_slot
 {
@@ -81,6 +82,7 @@ struct stdh_bucket
 
 struct stdh_table
 {
+    size_t probe_limit;
     size_t buckets;
     size_t used;
     struct stdh_bucket* bucket;
@@ -93,7 +95,7 @@ struct stdh_table *make_stdh_table(
 
 struct stdh_bucket insert_stdh_table(
     struct stdh_table *table, const char *key, 
-    uint8_t value
+    uint8_t value, bool force
 );
 
 struct stdh_bucket find_stdh_table(
@@ -110,21 +112,11 @@ bool destroy_stdh_table(
 );
 
 struct stdh_table *rehash_stdh_table(
-    struct stdh_table *table
+    struct stdh_table *table,
+    double factor
 );
 
 #ifdef SPECIAL_HASH_UTILS
-
-struct stdh_bucket _insert_index(
-    struct stdh_table *table, size_t index, 
-    HASH_BITS hash, uint8_t value
-);
-
-struct stdh_bucket _remove_index(
-    struct stdh_table *table,
-    HASH_BITS hash,
-    size_t index
-);
 
 void print_stdh_table(
     struct stdh_table *table
