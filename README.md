@@ -25,3 +25,5 @@ The source should be self-documenting, a few points:
   2. For using your own hash functions, make sure they have the correct signature (uint32_t) (*)(const char *)
   3. The use of void pointers is worrisome
   4. Use at your own risk
+
+Added an implementation of robinhood hashing for testiing purposes against the BCHT.
